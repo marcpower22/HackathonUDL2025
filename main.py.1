@@ -1,0 +1,26 @@
+import socket
+import time
+
+RECEIVER_IP = "localhost"   # <-- change to receiver's LAN IP
+PORT = 5001
+FILE_PATH = "input.txt"
+SEND_INTERVAL = 5              # seconds between sends
+
+def send_file_loop():
+    while True:
+        try:
+            with open(FILE_PATH, "rb") as f:
+                file_data = f.read()
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((RECEIVER_IP, PORT))
+                s.sendall(file_data)
+
+            print("[+] File sent.")
+        except Exception as e:
+            print(f"[!] Error: {e}")
+
+        time.sleep(SEND_INTERVAL)
+
+if __name__ == "__main__":
+    send_file_loop()

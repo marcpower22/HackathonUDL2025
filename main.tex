@@ -1,0 +1,369 @@
+\documentclass[12pt, a4paper, oneside]{book}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{hyperref} %[hidelinks]
+\usepackage{natbib}
+\usepackage[nottoc,numbib]{tocbibind} %afegir bibliografia a l'index
+\usepackage{graphicx}
+\usepackage[backend=bibtex]{biblatex}
+\addbibresource{references.bib}
+\DefineBibliographyStrings{catalan}{%
+  bibliography = {Referències},
+}
+
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage[export]{adjustbox}
+\usepackage{float}
+
+\usepackage{amsmath}
+%\usepackage{indentfirst}%identar bé
+%\usepackage{parskip}%identar bé
+\usepackage{multirow} %taules
+\usepackage{wrapfig}%moureimg
+\usepackage{listings}%insertar codi
+\usepackage{upquote}
+\makeatletter
+
+\usepackage[absolute]{textpos}%portada ns
+
+\usepackage{mdframed}
+
+\usepackage{fancyhdr}
+
+\usepackage{tikz}
+\def\checkmark{\tikz\fill[scale=0.4](0,.35) -- (.25,0) -- (1,.7) -- (.25,.15) -- cycle;} 
+
+
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Documentacio Hack EPS 2025: Ingroup}
+\lhead{Marc Aiguadé i Bruno Rios}
+\cfoot{\thepage}
+
+
+\pagenumbering{arabic}
+
+
+\title{Documentacio Hack EPS 2025: Ingroup}
+\author{Marc Aiguadé i Bruno Rios}
+\date{\today}
+\begin{document}
+\begin{titlepage} % Suppresses displaying the page number on the title page and the subsequent page counts as page 1
+	\newcommand{\HRule}{\rule{\linewidth}{0.5mm}} % Defines a new command for horizontal lines, change thickness here
+	
+	\center % Centre everything on the page
+	
+	%------------------------------------------------
+	%	Headings
+	%------------------------------------------------
+	
+	\textsc{\LARGE Resources}\\[1.5cm] % Main heading such as the name of your university/college
+	
+\begin{figure}[H]
+    \includegraphics[width=10cm]{Images/2025-11-22 18-57-42 - frame at 1m2s.jpg}
+    \centering
+\end{figure}
+	
+	%------------------------------------------------
+	%	Title
+	%------------------------------------------------
+	
+	\HRule\\[0.4cm]
+	
+	{\huge\bfseries Documentacio Hack EPS 2025: Ingroup}\\[0.2cm] % Title of your document
+
+	\HRule\\[0.3cm]
+	
+
+	%------------------------------------------------
+	%	Author(s)
+	%------------------------------------------------
+	
+	
+	\begin{flushright}
+			\large
+			\textit{Autors: }
+			\textsc{Marc Aiguadé i Bruno Rios} % Your name
+		\end{flushright}
+	~
+	
+	
+
+	\vfill\vfill % Position the date 3/4 down the remaining page
+			
+			\large{22/11/2025-23/11/2025}
+
+	
+	%------------------------------------------------
+	%	Logo
+	%------------------------------------------------
+	
+	%\vfill\vfill
+	%\includegraphics[width=0.2\textwidth]{placeholder.jpg}\\[1cm] % Include a department/university logo - this will require the graphicx package
+	 
+	%----------------------------------------------------------------------------------------
+	
+	\vfill % Push the date up 1/4 of the remaining page
+	
+\end{titlepage}
+
+
+
+
+%chat
+
+\tableofcontents
+\newpage
+
+\section{Introducción}
+
+Este documento describe el diseño e implementación de un sistema distribuido de captura y visualización 3D del esqueleto humano a partir de múltiples cámaras. El sistema está compuesto por los siguientes elementos principales:
+
+\begin{itemize}
+	\item Varias cámaras que ejecutan el programa \texttt{sender.py} para capturar vídeo y enviarlo a través de la red.
+	\item Un servidor central que ejecuta \texttt{receiver.py}, recibe los flujos de vídeo, aplica un modelo de visión por computador (YOLOv8 pose) para estimar los puntos clave (keypoints) 2D, y realiza triangulación para obtener coordenadas 3D.
+	\item Un proyecto de Unity que ejecuta el script \texttt{SkeletonVisualizer.cs}, se conecta al servidor y muestra en tiempo real el esqueleto 3D reconstruido.
+\end{itemize}
+
+El objetivo final es visualizar en Unity, en tiempo real, el esqueleto de la persona detectada a partir de las imágenes capturadas por las cámaras, aprovechando la inferencia de una IA de pose humana (YOLOv8) y la geometría de cámaras para recuperar información tridimensional.
+
+\section{Arquitectura General del Sistema}
+
+La arquitectura del sistema sigue un patrón cliente–servidor distribuido (ver Figura~\ref{fig:arquitectura}):
+
+\begin{itemize}
+	\item Cada cámara actúa como cliente TCP, ejecutando \texttt{sender.py} y conectándose al servidor de vídeo en el puerto 9999.
+	\item El servidor central ejecuta \texttt{receiver.py}, que levanta un servidor TCP para recibir frames de múltiples cámaras y otro servidor TCP (puerto 5000) para enviar al cliente de Unity las coordenadas 3D calculadas.
+	\item Unity actúa como cliente TCP, ejecutando \texttt{SkeletonVisualizer.cs} y conectándose al puerto 5000 para recibir las posiciones de los 17 puntos clave del esqueleto.
+\end{itemize}
+
+\begin{figure}[h]
+	\centering
+	% \includegraphics[width=0.8\textwidth]{arquitectura.pdf}
+	\caption{Arquitectura lógica del sistema: múltiples senders, un receiver y un cliente Unity.}
+	\label{fig:arquitectura}
+\end{figure}
+
+\section{Módulo \texttt{sender.py}}
+
+El módulo \texttt{sender.py} se ejecuta en cada ordenador conectado a una cámara. Su responsabilidad es capturar frames de vídeo, comprimirlos y enviarlos a través de TCP a la máquina que ejecuta \texttt{receiver.py}.
+
+\subsection{Captura de vídeo}
+
+Se utiliza OpenCV para acceder a la cámara local:
+
+\begin{verbatim}
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+\end{verbatim}
+
+De esta forma se fija la resolución a 640x360 píxeles, lo que reduce el ancho de banda necesario manteniendo una calidad suficiente para la detección de pose.
+
+\subsection{Control de tasa de frames}
+
+Para limitar la carga de red y de CPU, se implementa un control simple de FPS mediante un intervalo temporal:
+
+\begin{itemize}
+	\item Se define una tasa objetivo (\texttt{target\_fps = 10}).
+	\item Se calcula un intervalo \texttt{frame\_interval = 1.0 / target\_fps}.
+	\item Antes de capturar un nuevo frame se comprueba si ha transcurrido suficiente tiempo desde el frame anterior.
+\end{itemize}
+
+\subsection{Codificación y envío de frames}
+
+Cada frame se comprime en JPEG utilizando OpenCV y se envía por un socket TCP:
+
+\begin{enumerate}
+	\item Se codifica el frame en memoria con \texttt{cv2.imencode('.jpg', frame, ...)}.
+	\item Se obtiene el buffer binario y se calcula su longitud.
+	\item Se envían primero 8 bytes con el tamaño (formato \texttt{"Q"} de la librería \texttt{struct}), seguidos de los datos JPEG.
+\end{enumerate}
+
+Este protocolo \textit{tamaño + datos} permite al servidor reconstruir los frames de forma robusta, incluso cuando los datagramas TCP llegan fragmentados.
+
+\subsection{Gestión de reconexiones}
+
+Si el servidor no está disponible o la conexión se pierde, el \texttt{sender.py} captura excepciones de \texttt{socket.error} y \texttt{socket.timeout}, cierra el socket y reintenta la conexión después de un breve retardo. Esto permite que el sistema se recupere automáticamente de cortes temporales de red.
+
+\section{Módulo \texttt{receiver.py}}
+
+El módulo \texttt{receiver.py} centraliza la recepción de vídeo, la inferencia de pose 2D, la triangulación 3D y la difusión de resultados hacia Unity.
+
+\subsection{Recepción de frames de múltiples cámaras}
+
+	exttt{receiver.py} crea un servidor TCP en el puerto 9999 mediante \texttt{socket} estándar. Por cada conexión entrante se lanza un hilo dedicado (función \texttt{handle\_client}) que:
+
+\begin{itemize}
+	\item Lee los primeros 8 bytes para conocer el tamaño del frame.
+	\item Acumula datos hasta completar el frame JPEG.
+	\item Decodifica el JPEG en un array de imagen con \texttt{cv2.imdecode}.
+	\item Guarda el último frame recibido por cada IP en el diccionario global \texttt{latest\_frames} protegido por un lock.
+\end{itemize}
+
+Esto permite que el bucle principal del servidor siempre disponga del frame más reciente de cada cámara conectada.
+
+\subsection{Configuración geométrica de las cámaras}
+
+Para poder reconstruir coordenadas 3D a partir de observaciones 2D es necesario conocer la geometría de cada cámara. El código define una lista \texttt{CAMERAS} con la posición aproximada de cada cámara en un sistema de coordenadas global (en centímetros):
+
+\begin{verbatim}
+CAMERAS = [
+	('127.0.0.1',   -200, 200, -200),
+	('192.168.1.101', 200, 200, -200),
+]
+\end{verbatim}
+
+Cada entrada contiene la IP de la cámara y sus coordenadas \((X, Y, Z)\). Se asume que el origen \((0, 0, 0)\) está en el centro del espacio de trabajo (por ejemplo, el centro del círculo donde se sitúa la persona) y que las cámaras están elevadas a 200 cm mirando hacia el centro.
+
+La función \texttt{get\_projection\_matrix} construye para cada cámara su matriz de proyección \(P = K [R \,|\, t]\), donde:
+
+\begin{itemize}
+	\item \(K\) es la matriz intrínseca (focal aproximada y centro de imagen).
+	\item \(R\) es la matriz de rotación que orienta la cámara hacia el origen.
+	\item \(t\) es el vector de traslación \(t = -R C\), con \(C\) el centro de la cámara en coordenadas del mundo.
+\end{itemize}
+
+Estas matrices se almacenan en el diccionario \texttt{CAM\_CONFIG} indexado por IP, de modo que durante la triangulación se pueda acceder fácilmente a la matriz de cada cámara que ha detectado un punto concreto.
+
+\subsection{Inferencia de pose 2D con YOLOv8}
+
+En el bucle principal de \texttt{receiver.py}, el servidor recorre periódicamente el diccionario de frames más recientes \texttt{latest\_frames} y, para cada cámara, ejecuta el modelo YOLOv8 de pose:
+
+\begin{enumerate}
+	\item Se carga previamente el modelo con \texttt{YOLO('yolov8n-pose.pt')}, que proporciona 17 puntos clave por persona (nariz, ojos, hombros, caderas, rodillas, tobillos, etc.).
+	\item Sobre cada frame se llama a \texttt{model(frame)} para obtener las detecciones.
+	\item Se selecciona, por simplicidad, la primera persona detectada en cada cámara, y se extrae el array de keypoints de tamaño $(17, 3)$ (coordenadas $x$, $y$ en píxeles y confianza).
+	\item Se guardan estos keypoints en un diccionario \texttt{keypoints\_2d} indexado por IP.
+\end{enumerate}
+
+Además, para depuración, se muestra una ventana de OpenCV con el frame anotado que devuelve YOLOv8 (esqueleto dibujado sobre la imagen).
+
+\subsection{Triangulación 3D}
+
+Una vez que se dispone de keypoints 2D desde al menos dos cámaras con matrices de proyección conocidas, se puede obtener la posición 3D de cada punto clave mediante el algoritmo de Triangulación Lineal Directa (DLT).
+
+Para cada índice de keypoint (de 0 a 16):
+
+\begin{itemize}
+	\item Se recorre el conjunto de cámaras válidas y se recopilan todas las observaciones $(u, v)$ del keypoint cuya confianza supere un umbral (por ejemplo, 0{,}5).
+	\item Para cada observación y su matriz de proyección $P$ se añaden dos filas a una matriz $A$ de la forma:
+	\[ u P_{3,:} - P_{1,:}, \quad v P_{3,:} - P_{2,:} \]
+	\item Se resuelve el sistema homogéneo $A X = 0$ mediante Descomposición en Valores Singulares (SVD). El vector asociado al menor valor singular proporciona la solución \(X = (X, Y, Z, W)^T\).
+	\item Finalmente se normaliza \(X\) dividiendo por \(W\) para obtener las coordenadas 3D en el sistema de referencia global.
+\end{itemize}
+
+Si un keypoint no está visible en suficientes cámaras (menos de dos observaciones válidas), se marca como ausente (\texttt{None}) en la lista de puntos 3D.
+
+\subsection{Registro en CSV y envío a Unity}
+
+Tras calcular el esqueleto 3D, el servidor:
+
+\begin{enumerate}
+	\item Escribe en un fichero CSV una fila por frame, con el tiempo, un ID de cuerpo (en este caso 0) y las coordenadas $X, Y, Z$ de cada uno de los 17 puntos clave. Los puntos no disponibles se dejan en blanco.
+	\item Construye una cadena de texto con el siguiente formato para enviar a Unity:
+	\[ \text{timestamp},\, \text{BodyID},\, X_0, Y_0, Z_0, X_1, Y_1, Z_1, \ldots, X_{16}, Y_{16}, Z_{16} \]
+	separada por comas.
+	\item Llama a la función \texttt{broadcast\_to\_unity} para enviar esta cadena a todos los clientes TCP conectados en el puerto 5000.
+\end{enumerate}
+
+\section{Módulo \texttt{SkeletonVisualizer.cs} en Unity}
+
+El script \texttt{SkeletonVisualizer.cs} se adjunta a un objeto en la escena de Unity y se encarga de:
+
+\begin{itemize}
+	\item Establecer una conexión TCP con el servidor en el puerto 5000.
+	\item Recibir continuamente las líneas CSV con datos 3D.
+	\item Interpretar las coordenadas y posicionar esferas (joints) y líneas (bones) en el espacio de Unity.
+\end{itemize}
+
+\subsection{Conexión de red}
+
+En el método \texttt{Start()}, el script inicia una corrutina \texttt{AttemptConnection()} que intenta conectarse repetidamente al servidor:
+
+\begin{itemize}
+	\item Crea un objeto \texttt{TcpClient} y trata de conectarse a la IP y puerto configurados.
+	\item Si la conexión tiene éxito, obtiene un \texttt{NetworkStream} y lanza un hilo \texttt{ReceiveData()} dedicado a la recepción.
+	\item Si falla, espera unos segundos y vuelve a intentarlo.
+\end{itemize}
+
+En \texttt{ReceiveData()}, el hilo lee bytes del stream, los convierte a texto UTF-8, separa las líneas por el carácter de nueva línea y las encola en \texttt{dataQueue} para que el hilo principal de Unity las procese en \texttt{Update()}.
+
+\subsection{Construcción del esqueleto en la escena}
+
+El método \texttt{InitializeSkeleton()} crea:
+
+\begin{itemize}
+	\item 17 objetos \texttt{GameObject} (esferas u otro prefab) que representan las articulaciones (joints). Estos objetos se crean como hijos del objeto que contiene el script y se desactivan inicialmente.
+	\item Un conjunto de 12 objetos \texttt{LineRenderer} que representan los huesos (bones), conectando pares de índices definidos en la matriz \texttt{boneConnections} (hombros, caderas, brazos, piernas, etc.).
+\end{itemize}
+
+En cada frame, el método \texttt{Update()} extrae la última línea disponible de \texttt{dataQueue} y llama a \texttt{UpdateFrame()}.
+
+\subsection{Mapeo de datos 3D a objetos Unity}
+
+En \texttt{UpdateFrame(string csvLine)} se realiza lo siguiente:
+
+\begin{enumerate}
+	\item Se divide la línea CSV usando comas. Las dos primeras columnas son el tiempo y el ID del cuerpo; a partir del índice 2 están las coordenadas de los keypoints.
+	\item Para cada uno de los 17 puntos, se obtienen las cadenas \texttt{sX}, \texttt{sY}, \texttt{sZ} y se convierten a números en \texttt{float} usando \texttt{CultureInfo.InvariantCulture}.
+	\item Si algún punto no tiene datos (cadenas vacías), el joint correspondiente se desactiva.
+	\item Si los tres valores son válidos, se construye un \texttt{Vector3} con las coordenadas $(x, -y, z)$, multiplicado por un factor de escala configurable (\texttt{scale}) y desplazado por un \texttt{offset}. El signo negativo en el eje $y$ permite ajustar la diferencia de convenciones entre el sistema de coordenadas del mundo 3D definido en Python y el sistema de Unity.
+	\item Se posiciona cada joint en \texttt{transform.localPosition} y se activa el objeto.
+	\item Finalmente se actualizan los \texttt{LineRenderer} de los huesos para que sus extremos coincidan con las posiciones de los joints activos.
+\end{enumerate}
+
+De esta forma, el esqueleto se representa visualmente en la escena de Unity y se actualiza en tiempo real a medida que llegan nuevos datos del servidor.
+
+\section{Flujo de Datos Completo}
+
+Resumiendo, el flujo de datos del sistema es el siguiente:
+
+\begin{enumerate}
+	\item \textbf{Captura local:} Cada cámara ejecuta \texttt{sender.py}, captura frames mediante OpenCV y los envía comprimidos en JPEG al servidor en el puerto 9999.
+	\item \textbf{Recepción y bufferización:} \texttt{receiver.py} recibe los frames de cada cámara, mantiene sólo el más reciente por IP y los almacena en \texttt{latest\_frames}.
+	\item \textbf{Inferencia 2D:} El servidor recorre periódicamente los frames disponibles, ejecuta YOLOv8 pose sobre cada uno y obtiene un conjunto de 17 puntos clave 2D con sus confianzas.
+	\item \textbf{Triangulación 3D:} Para cada punto clave se combinan las observaciones 2D desde al menos dos cámaras, utilizando sus matrices de proyección \(P\), para resolver su posición 3D mediante DLT.
+	\item \textbf{Registro y broadcast:} Las coordenadas 3D se registran en un fichero CSV y se envían en formato CSV por TCP a todos los clientes Unity conectados al puerto 5000.
+	\item \textbf{Visualización en Unity:} El script \texttt{SkeletonVisualizer.cs} recibe las líneas CSV, actualiza las posiciones de 17 joints y 12 bones, y muestra en la escena el esqueleto 3D de la persona.
+\end{enumerate}
+
+\section{Consideraciones y Limitaciones}
+
+\subsection{Calibración aproximada de cámaras}
+
+En la implementación actual, la configuración de cámaras (posición y orientación) es aproximada y está codificada a mano en \texttt{CAMERAS}. Esto permite una reconstrucción 3D razonable para demostraciones, pero no sustituye a una calibración fotogramétrica precisa. Para aplicaciones que requieran alta exactitud métrica, sería recomendable:
+
+\begin{itemize}
+	\item Realizar una calibración intrínseca y extrínseca de cada cámara con patrones tipo tablero de ajedrez.
+	\item Obtener matrices \(K\), \(R\) y \(t\) reales y sustituir las aproximaciones actuales.
+\end{itemize}
+
+\subsection{Múltiples personas}
+
+El sistema procesa actualmente sólo la primera persona detectada en cada frame (primer esqueleto). La extensión a múltiples cuerpos implicaría identificar correspondencias de IDs entre cámaras y ampliar el formato de datos para incluir varios esqueletos por frame.
+
+\subsection{Rendimiento}
+
+El uso de YOLOv8 para detección de pose es computacionalmente intensivo. El rendimiento dependerá de:
+
+\begin{itemize}
+	\item La potencia de la GPU/CPU del servidor.
+	\item El número de cámaras conectadas simultáneamente.
+	\item La resolución de las imágenes y la frecuencia de captura.
+\end{itemize}
+
+Se ha limitado la tasa de frames en los senders a unos 10 FPS para lograr un compromiso entre fluidez y uso de recursos.
+
+\section{Conclusión}
+
+Se ha desarrollado un sistema completo de captura y visualización 3D de pose humana basado en múltiples cámaras, un servidor central de visión por computador y un cliente de visualización en Unity. A partir de dos o más vistas de una misma persona, el sistema estima su esqueleto 3D y lo muestra en tiempo real, lo que abre la puerta a aplicaciones en realidad aumentada, análisis de movimiento, interacción hombre–máquina y videojuegos.
+
+Aunque la calibración actual es aproximada y existen múltiples posibles mejoras (precisión geométrica, soporte multi–persona, optimización de rendimiento, soporte WebGL, etc.), la arquitectura presentada proporciona una base sólida y extensible para futuros desarrollos.
+
+\end{document}
